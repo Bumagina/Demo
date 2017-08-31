@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="utf-8">
+
+<style>
+	.title {
+		margin-top: 30px;
+	}
+
+	table {
+		margin: 20px;
+		border-collapse: collapse;
+	}
+
+	table, td {
+		border: 1px solid black;
+	}
+
+	td {
+		padding: 5px;
+		text-align: right;
+	}
+	
+</style>
+
+<!-- полифиллы для ECMAScript6 и Fetch API -->
+<script type="text/javascript" src="es6-shim.min.js"></script>
+<script type="text/javascript" src="fetch.js"></script>
+
+<script type="text/javascript">
+'use strict';
+
+// Map для рубрик вакансий
+var rubricsMap = new Map();
+
+// Map для слов
+var wordsMap = new Map();
+
+/**
+ * Подсчет статистики для конкретного значения
+ *
+ * @param {Map} map Map со статистикой
+ * @param {number|string} key Ключ
+ * @param {string} value Значение
+ */
+function countValue(map, key, value) {
+	if (map.has(key)) {
+		// если в map по данному ключу key уже существует значение увеличиваем счетчик count этого значения
+		map.get(key).count++;
+	} else {
+		// иначе добавляем новый элемент в map с ключом key, устанавливаем счетчик count в 1
+		map.set(key, {'value' : value, 'count' : 1});
+	}
+}
+
+/**
+ * Проверка на пригодность слова
+ *
+ * @param {string} word Слово
+ * @return {boolean} true если слово подходит для подсчета
+ */
+function isValidWord(word) {
+	const INVALID_WORDS = new Set(['и', 'или','г', 'ул', 'обл', 'с', 'по', 'в', 'на', 'о', 'для', 'undefined', 'район', 'берег']);
+	// нам не нужны в топе союзы, предлоги, числа и т.д.
+	return !(INVALID_WORDS.has(word) || /^\d+$/.test(word));
+}
+
+/**
+ * Обрабатывает массив с вакансиями подсчитывая статистику
+ *
+ * @param {Object[]} vacancies Массив объектов с описанием вакансиий
+ */
+function processVacancies(vacancies) {
+	console.log(vacancies);
+	vacancies.forEach(function(vacancy) {
+		vacancy.rubrics.forEach(function(rubric) {
+			// подсчет статистики для всех рубрик каждой вакансии
+			countValue(rubricsMap, rubric.id, rubric.title);
+		});
+		// выбираем слова из заголовка вакансии состоящие только из букв, цифр, "_", "-"
+		let words = vacancy.header.toLowerCase().match(/(\w|-|[а-яё])+/gm);
+		console.log(words);
+		words.forEach(function(word) {
+			if (isValidWord(word)) {
+				// подсчет статистики для всех подходящих слов из заголовков вакансий
+				countValue(wordsMap, word, word);
+			}
+		});
+	});
+}
+
+/**
+ * Функция сортировки массива объектов по убыванию значения свойства count
+ *
+ * @param {Object[]} array Массив объектов со свойством count
+ */
+function sortArray(array) {
+	array.sort(function(a,b) {
+		if (a.count > b.count) {
+			return -1;
+		}
+		if (a.count < b.count) {
+			return 1;
+		}
+		return 0;
+	});
+}
+
+/**
+ * Формирует таблицу с топ результатами из массива
+ *
+ * @param {string} title Название таблицы
+ * @param {Object[]} array Массив объектов со свойствами value и count
+ * @return {string} Строка с таблицей
+ */
+function writeTable(title, array) {
+	let content = '<div class="title">' + title + '</div>';
+	content += '<table>';
+	// выводим 10 первых существующих элементов массива array
+	for (let i = 0; i < 10; i++) {
+		if (array[i]) {
+			content += '<tr><td>';
+			content += array[i].value;
+			content += '</td><td>';
+			content += array[i].count;
+			content += '</td></tr>';
+		} else {
+			break;
+		}
+	}
+	content += '</table>';
+	return content;
+}
+
+/**
+ * Формирует контент топ результатов для указанной мапы
+ *
+ * @param {string} title Название таблицы
+ * @param {Map} map Map со статистикой
+ * @return {string} Строка с контентом
+ */
+function writeTopValues(title, map) {
+	console.log(map);
+	// преобразуем мапу в массив состоящий из значений мапы
+	let array = Array.from(map.values());
+	// сортируем массив по count
+	sortArray(array);
+	console.log(array);
+	// формируем таблицу
+	return writeTable(title, array);
+}
+
+/**
+ * Выводит результаты на страницу
+ */
+function showResults() {
+	// таблица топ 10 рубрик + таблица топ 10 слов
+	document.body.innerHTML = writeTopValues('ТОП 10 РУБРИК:', rubricsMap) +
+		writeTopValues('ТОП 10 СЛОВ:', wordsMap);
+}
+
+/**
+ * Основной метод, запускается на загрузку страницы:
+ * - загружает и обрабатывает вакансии порциями
+ * - выводит результаты на страницу
+ *
+ * @param {number} offset Индекс с которго начинается загрузка данных
+ */
+function getVacancies(offset) {
+	// api url для получения новых, добавленных сегодня вакансий в Новосибирске
+	const API_URL = 'https://api.zp.ru/v1/vacancies?geo_id=826&period=today&is_new_only=true';
+	// размер порции запрашиваемых данных
+	const LIMIT = 20;
+	console.log(offset);
+	fetch(API_URL + '&limit=' + LIMIT + '&offset=' + offset).then(function(response) {
+		if (response.ok) {
+			response.json().then(function(data) {
+				processVacancies(data.vacancies);
+				if (data.vacancies.length < LIMIT) {
+					// если данных больше нет выводим результаты
+					showResults();
+				} else {
+					// рекурсивно запрашиваем следующую порцию вакансий
+					offset += LIMIT;
+					getVacancies(offset);
+				}
+			});
+		}
+	});
+}
+
+</script>
+</head>
+
+<body onload="getVacancies(0);">
+</body>
+
+</html>
